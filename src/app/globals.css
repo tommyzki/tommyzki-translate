@@ -8,31 +8,41 @@ body {
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
+    --background: 48 100% 95%; /* Light Cream */
+    --foreground: 25 63% 26%; /* Dark Brown */
+
+    --card: 48 100% 93%; /* Slightly off-cream for card */
+    --card-foreground: 25 63% 26%; /* Dark Brown */
+
+    --popover: 48 100% 90%; /* Slightly darker popover */
+    --popover-foreground: 25 63% 26%; /* Dark Brown */
+
+    --primary: 358 69% 49%; /* Retro Red */
+    --primary-foreground: 48 100% 95%; /* Light Cream (text on primary) */
+
+    --secondary: 19 90% 55%; /* Retro Orange (F1602C) */
+    --secondary-foreground: 25 63% 26%; /* Dark Brown (text on secondary) */
+
+    --muted: 48 60% 90%; /* Muted Cream */
+    --muted-foreground: 25 50% 50%; /* Muted Brown */
+
+    --accent: 30 86% 53%; /* Retro Orange (EC8922) */
+    --accent-foreground: 25 63% 26%; /* Dark Brown (text on accent) */
+
+    --destructive: 358 69% 49%; /* Retro Red */
+    --destructive-foreground: 48 100% 95%; /* Light Cream */
+
+    --border: 26 72% 33%; /* Medium Brown (915018) for general borders */
+    --input: 26 72% 40%; /* Slightly lighter brown for input borders */
+    --ring: 30 86% 53%; /* Retro Orange (EC8922 for focus rings) */
+    
+    --radius: 0.3rem; /* For rounded corners */
+
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
@@ -43,25 +53,35 @@ body {
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    /* Keeping dark theme variables, but primary focus is light theme based on request */
+    --background: 25 63% 10%; /* Darker Brown */
+    --foreground: 48 100% 90%; /* Lighter Cream */
+
+    --card: 25 63% 15%; 
+    --card-foreground: 48 100% 90%;
+
+    --popover: 25 63% 10%;
+    --popover-foreground: 48 100% 90%;
+
+    --primary: 358 69% 55%; /* Brighter Retro Red */
+    --primary-foreground: 25 63% 10%; 
+
+    --secondary: 19 90% 60%; /* Brighter Retro Orange (F1602C) */
+    --secondary-foreground: 25 63% 10%;
+
+    --muted: 25 50% 20%;
+    --muted-foreground: 48 60% 70%;
+
+    --accent: 30 86% 58%; /* Brighter Retro Orange (EC8922) */
+    --accent-foreground: 25 63% 10%;
+
+    --destructive: 358 69% 55%;
+    --destructive-foreground: 25 63% 10%;
+
+    --border: 26 72% 40%; 
+    --input: 26 72% 35%;
+    --ring: 30 86% 58%;
+    
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
@@ -84,5 +104,14 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+    /* For pixelated font rendering */
+    font-smooth: never;
+    -webkit-font-smoothing: none;
+  }
+  /* Style for pixelated images/icons if needed */
+  .pixelated {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
   }
 }
