@@ -126,8 +126,8 @@ export default function Home() {
   };
   
   return (
-    <main className="flex flex-col items-center justify-start p-4 md:p-8 flex-grow w-full min-h-screen">
-      <header className="mb-6 text-center">
+    <main className="flex flex-col items-center p-4 md:p-8 w-full min-h-screen">
+      <header className="mb-6 text-center w-full max-w-6xl">
         <div className="flex items-center justify-center gap-3">
           <Languages className="h-10 w-10 text-primary" />
           <h1 className="text-4xl md:text-5xl font-headline font-bold text-primary">
@@ -146,13 +146,34 @@ export default function Home() {
         </div>
       )}
 
-      <div className="w-full max-w-2xl mb-6">
+      {/* Content wrapper for cards and footer, this will grow */}
+      <div className="flex flex-col items-center flex-grow w-full max-w-6xl">
+        <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+          {UI_LANGUAGE_ORDER.map((langCode) => (
+            <LanguageCard
+              key={langCode}
+              languageInfo={LANGUAGES[langCode]}
+              livePreviewText={livePreviews[langCode]}
+              historyEntries={translationHistory}
+              isLoading={isLoading || isDetecting}
+              isDetectedSource={detectedSourceLanguage === langCode && universalInput.trim() !== ''}
+            />
+          ))}
+        </div>
+        
+        <footer className="mt-auto pt-12 pb-4 text-center text-sm text-muted-foreground w-full">
+          <p>&copy; {new Date().getFullYear()} Tommyzki Translator. Inspired by classic Pokémon games.</p>
+        </footer>
+      </div>
+
+      {/* Input Area - Moved to the bottom of the page flow */}
+      <div className="w-full max-w-2xl mt-6 mb-2">
         <div className="relative">
           <Textarea
             value={universalInput}
             onChange={handleUniversalInputChange}
             placeholder="Type here to translate (English, Bahasa Indonesia, or Japanese)..."
-            className="w-full resize-none text-base border-2 border-input focus:border-accent ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 p-4 pr-28" // Added pr for badge
+            className="w-full resize-none text-base border-2 border-input focus:border-accent ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 p-4 pr-28"
             rows={4}
             aria-label="Universal translation input"
             disabled={isLoading || isDetecting}
@@ -175,22 +196,6 @@ export default function Home() {
           Next Line & Save
         </Button>
       </div>
-
-      <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
-        {UI_LANGUAGE_ORDER.map((langCode) => (
-          <LanguageCard
-            key={langCode}
-            languageInfo={LANGUAGES[langCode]}
-            livePreviewText={livePreviews[langCode]}
-            historyEntries={translationHistory}
-            isLoading={isLoading || isDetecting}
-            isDetectedSource={detectedSourceLanguage === langCode && universalInput.trim() !== ''}
-          />
-        ))}
-      </div>
-      <footer className="mt-12 text-center text-sm text-muted-foreground">
-        <p>&copy; {new Date().getFullYear()} Tommyzki Translator. Inspired by classic Pokémon games.</p>
-      </footer>
     </main>
   );
 }
