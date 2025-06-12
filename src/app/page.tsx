@@ -1,97 +1,120 @@
+
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Languages, Loader2 } from 'lucide-react';
 import LanguageCard from '@/components/LanguageCard';
-import { Button } from '@/components/ui/button'; // Added for potential future use like clear
 import { useToast } from '@/hooks/use-toast';
 import { translateText, type TranslationInput, type TranslationOutput } from '@/ai/flows/real-time-translation';
 import { LANGUAGES, UI_LANGUAGE_ORDER, type LanguageCode } from '@/lib/languages';
 import { debounce } from '@/lib/debounce';
 
 type InputValuesState = Record<LanguageCode, string>;
-type DisplayValuesState = {
-  en: string;
-  id: string;
-  ja: { kanji: string; romaji: string };
-};
 
 export default function Home() {
   const [inputValues, setInputValues] = useState<InputValuesState>({ en: '', id: '', ja: '' });
-  const [displayValues, setDisplayValues] = useState<DisplayValuesState>({
-    en: '',
-    id: '',
-    ja: { kanji: '', romaji: '' },
-  });
+  const [translationHistory, setTranslationHistory] = useState<TranslationOutput[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [lastTypedLang, setLastTypedLang] = useState<LanguageCode | null>(null);
   const { toast } = useToast();
 
-  const performTranslation = useCallback(async (text: string, sourceLang: LanguageCode) => {
-    if (!text.trim()) {
-      setDisplayValues({ en: '', id: '', ja: { kanji: '', romaji: '' } });
-      // Clear other input fields if source is cleared
-      const clearedInputs: InputValuesState = { en: '', id: '', ja: '' };
-      clearedInputs[sourceLang] = ''; // Keep the typed field as is (empty)
-      setInputValues(clearedInputs);
+  const updatePreviews = useCallback(async (text: string, sourceLang: LanguageCode) => {
+    if (!text.trim()) { // Should be handled by useEffect clearing, but as a safeguard
+      setInputValues(currentInputs => {
+        const newInputs = { ...currentInputs };
+        UI_LANGUAGE_ORDER.forEach(langCode => {
+          if (langCode !== sourceLang) newInputs[langCode] = '';
+        });
+        newInputs[sourceLang] = ''; // Ensure current input is also empty in state
+        return newInputs;
+      });
       setIsLoading(false);
       return;
     }
 
     setIsLoading(true);
     try {
-      const translationInput: TranslationInput = { text, sourceLanguage: sourceLang };
-      const result: TranslationOutput = await translateText(translationInput);
-      
-      setDisplayValues(result);
-
-      // Update other input fields with translations
-      const newInputValues: InputValuesState = { ...inputValues, [sourceLang]: text };
-      if (sourceLang !== 'en') newInputValues.en = result.en;
-      if (sourceLang !== 'id') newInputValues.id = result.id;
-      if (sourceLang !== 'ja') newInputValues.ja = result.ja.kanji; // Populate with Kanji
-      setInputValues(newInputValues);
-
+      const result: TranslationOutput = await translateText({ text, sourceLanguage: sourceLang });
+      setInputValues(currentInputs => {
+        const newPreviews = { ...currentInputs };
+        newPreviews[sourceLang] = text; // Current text in the source input
+        if (sourceLang !== 'en') newPreviews.en = result.en;
+        if (sourceLang !== 'id') newPreviews.id = result.id;
+        if (sourceLang !== 'ja') newPreviews.ja = result.ja.kanji;
+        return newPreviews;
+      });
     } catch (error) {
-      console.error("Translation error:", error);
+      console.error("Preview Translation error:", error);
       toast({
-        title: "Translation Failed",
-        description: "Could not translate the text. Please try again.",
+        title: "Preview Failed",
+        description: "Could not fetch live preview. Please continue typing or try committing.",
         variant: "destructive",
       });
-      // Reset display values on error for clarity
-      setDisplayValues({ en: text, id: text, ja: { kanji: text, romaji: text } });
+      // Optionally reset previews or keep them as is
+      setInputValues(currentInputs => ({
+        ...currentInputs,
+        en: sourceLang === 'en' ? text : (currentInputs.en || ''), // Keep source text, clear others or keep if they had manual input
+        id: sourceLang === 'id' ? text : (currentInputs.id || ''),
+        ja: sourceLang === 'ja' ? text : (currentInputs.ja || ''),
+      }));
     } finally {
       setIsLoading(false);
     }
-  }, [toast, inputValues]); // Added inputValues to dependencies
+  }, [toast]); // Removed setIsLoading, setInputValues from deps as they are stable setters
 
-  const debouncedTranslate = useCallback(debounce(performTranslation, 750), [performTranslation]);
+  const debouncedUpdatePreviewsRef = useRef(
+    debounce((text: string, sourceLang: LanguageCode) => {
+      updatePreviews(text, sourceLang);
+    }, 1000)
+  );
+  
+  const activeInputText = lastTypedLang ? inputValues[lastTypedLang] : undefined;
 
   useEffect(() => {
-    if (lastTypedLang && inputValues[lastTypedLang] !== undefined) {
-      const textToTranslate = inputValues[lastTypedLang];
-      if (textToTranslate.trim() === '') { // If field is cleared
-        performTranslation('', lastTypedLang); // Clear translations and other fields
+    if (lastTypedLang && activeInputText !== undefined) {
+      if (activeInputText.trim() === '') {
+        setInputValues(currentInputs => {
+          const newInputs = { ...currentInputs };
+          UI_LANGUAGE_ORDER.forEach(langCode => {
+            if (langCode !== lastTypedLang) {
+              newInputs[langCode] = ''; 
+            }
+          });
+          newInputs[lastTypedLang] = '';
+          return newInputs;
+        });
       } else {
-        debouncedTranslate(textToTranslate, lastTypedLang);
+        debouncedUpdatePreviewsRef.current(activeInputText, lastTypedLang);
       }
     }
-  }, [inputValues, lastTypedLang, debouncedTranslate, performTranslation]);
-
-
+  }, [activeInputText, lastTypedLang, setInputValues]);
+  
   const handleInputChange = (langCode: LanguageCode, value: string) => {
     setInputValues(prev => ({ ...prev, [langCode]: value }));
     setLastTypedLang(langCode);
-    // If user clears the input, immediately update display for that card to be empty
-    if (value.trim() === '') {
-      if (langCode === 'ja') {
-        setDisplayValues(prev => ({ ...prev, ja: { kanji: '', romaji: '' } }));
-      } else {
-        setDisplayValues(prev => ({ ...prev, [langCode]: '' }));
-      }
-    }
   };
+
+  const handleCommitTranslation = useCallback(async (sourceLang: LanguageCode) => {
+    const textToCommit = inputValues[sourceLang];
+    if (!textToCommit.trim()) return;
+
+    setIsLoading(true);
+    try {
+      const result = await translateText({ text: textToCommit, sourceLanguage: sourceLang });
+      setTranslationHistory(prev => [...prev, result]);
+      setInputValues({ en: '', id: '', ja: '' }); // Clear all inputs
+      setLastTypedLang(null);
+    } catch (error) {
+      console.error("Commit Translation error:", error);
+      toast({
+        title: "Translation Failed",
+        description: "Could not commit the translation. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [inputValues, toast]); // Removed stable setters
 
   return (
     <main className="flex flex-col items-center justify-center p-4 md:p-8 flex-grow w-full">
@@ -103,7 +126,7 @@ export default function Home() {
           </h1>
         </div>
         <p className="text-muted-foreground mt-2 text-sm md:text-base">
-          Translate between Bahasa Indonesia, English, and Japanese with a retro touch!
+          Translate, see history, and enjoy the retro vibe!
         </p>
       </header>
 
@@ -120,14 +143,11 @@ export default function Home() {
             key={langCode}
             languageInfo={LANGUAGES[langCode]}
             inputValue={inputValues[langCode]}
-            displayValue={
-              langCode === 'ja'
-                ? displayValues.ja
-                : displayValues[langCode as Exclude<LanguageCode, 'ja'>]
-            }
+            historyEntries={translationHistory}
             onInputChange={handleInputChange}
+            onCommit={handleCommitTranslation}
             isLoading={isLoading}
-            isSourceLanguage={lastTypedLang === langCode && isLoading}
+            isInputDisabled={isLoading && lastTypedLang === langCode}
           />
         ))}
       </div>
