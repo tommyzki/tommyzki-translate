@@ -13,26 +13,40 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
-type LivePreviewState = Record<LanguageCode, string>;
 
 export default function Home() {
   const [universalInput, setUniversalInput] = useState('');
   const [detectedSourceLanguage, setDetectedSourceLanguage] = useState<LanguageCode | null>(null);
-  const [livePreviews, setLivePreviews] = useState<LivePreviewState>({ en: '', id: '', ja: '' });
+  const [livePreviews, setLivePreviews] = useState<TranslationOutput>({
+    en: '',
+    id: '',
+    ja: {
+      kanji: '',
+      romaji: '',
+    },
+  });
   const [translationHistory, setTranslationHistory] = useState<TranslationOutput[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const { toast } = useToast();
 
   const clearPreviews = useCallback(() => {
-    setLivePreviews({ en: '', id: '', ja: '' });
+    setLivePreviews({
+      en: '',
+      id: '',
+      ja: {
+        kanji: '',
+        romaji: '',
+      },
+    });
     setDetectedSourceLanguage(null);
   }, []);
-  
+
   const performFullTranslation = useCallback(async (text: string, sourceLang: LanguageCode): Promise<TranslationOutput | null> => {
     setIsLoading(true);
     try {
       const result: TranslationOutput = await translateText({ text, sourceLanguage: sourceLang });
+      console.log(result)
       return result;
     } catch (error) {
       console.error("Translation error:", error);
@@ -49,28 +63,28 @@ export default function Home() {
 
 
   const updateLivePreviews = useCallback(async (text: string, sourceLang: LanguageCode) => {
-    if (!text.trim()) {
+    const trimmedText = text.trim();
+
+    if (!trimmedText) {
       clearPreviews();
       return;
     }
-    const translationResult = await performFullTranslation(text, sourceLang);
-    if (translationResult) {
-      setLivePreviews(currentPreviews => {
-        const newPreviews = { ...currentPreviews };
-        newPreviews[sourceLang] = text; 
-        if (sourceLang !== 'en') newPreviews.en = translationResult.en;
-        if (sourceLang !== 'id') newPreviews.id = translationResult.id;
-        if (sourceLang !== 'ja') newPreviews.ja = translationResult.ja.kanji;
-        return newPreviews;
-      });
-    } else {
-      // If translation failed, at least keep the source text in its preview
+
+    try {
+      const translationResult = await performFullTranslation(trimmedText, sourceLang);
       setLivePreviews(currentPreviews => ({
         ...currentPreviews,
-        [sourceLang]: text,
+        ...(translationResult ?? { [sourceLang]: trimmedText }),
+      }));
+    } catch (error) {
+      console.error('Translation failed:', error);
+      setLivePreviews(currentPreviews => ({
+        ...currentPreviews,
+        [sourceLang]: trimmedText,
       }));
     }
   }, [clearPreviews, performFullTranslation]);
+
 
 
   const debouncedDetectAndTranslateRef = useRef(
@@ -103,7 +117,7 @@ export default function Home() {
   useEffect(() => {
     debouncedDetectAndTranslateRef.current(universalInput);
   }, [universalInput]);
-  
+
   const handleUniversalInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setUniversalInput(e.target.value);
     if (!e.target.value.trim()) {
@@ -120,11 +134,11 @@ export default function Home() {
     const result = await performFullTranslation(universalInput, detectedSourceLanguage);
     if (result) {
       setTranslationHistory(prev => [result, ...prev]); // Add to top of history
-      setUniversalInput(''); 
+      setUniversalInput('');
       clearPreviews();
     }
   };
-  
+
   return (
     <main className="flex flex-col items-center p-4 md:p-8 w-full min-h-screen">
       <header className="mb-6 text-center w-full max-w-6xl">
@@ -160,10 +174,6 @@ export default function Home() {
             />
           ))}
         </div>
-        
-        <footer className="mt-auto pt-12 pb-4 text-center text-sm text-muted-foreground w-full">
-          <p>&copy; {new Date().getFullYear()} Tommyzki Translator. Inspired by classic Pokémon games.</p>
-        </footer>
       </div>
 
       {/* Input Area - Moved to the bottom of the page flow */}
@@ -185,8 +195,8 @@ export default function Home() {
             </Badge>
           )}
         </div>
-        <Button 
-          onClick={handleCommitTranslation} 
+        <Button
+          onClick={handleCommitTranslation}
           disabled={!universalInput.trim() || isLoading || isDetecting || !detectedSourceLanguage}
           className="w-full mt-3"
           variant="default"
@@ -196,6 +206,9 @@ export default function Home() {
           Next Line & Save
         </Button>
       </div>
+      <footer className="mt-auto py-4 text-center text-sm text-muted-foreground w-full">
+        <p>&copy; {new Date().getFullYear()} Tommyzki Translator. Inspired by classic Pokémon games.</p>
+      </footer>
     </main>
   );
 }

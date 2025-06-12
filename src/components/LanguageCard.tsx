@@ -10,7 +10,7 @@ import type { TranslationOutput } from '@/ai/flows/real-time-translation';
 
 interface LanguageCardProps {
   languageInfo: LanguageInfo;
-  livePreviewText: string;
+  livePreviewText: string | TranslationOutput['ja'];
   historyEntries: TranslationOutput[];
   isLoading: boolean;
   isDetectedSource: boolean;
@@ -57,7 +57,7 @@ export default function LanguageCard({
       textToShow = <p>{entry[languageInfo.code as Exclude<LanguageCode, 'ja'>] || ' '}</p>;
     }
     return (
-      <div 
+      <div
         key={textKey}
         className="p-2 mb-2 rounded-md bg-card/80 text-sm border border-border/30 shadow-sm break-words whitespace-pre-wrap"
       >
@@ -65,35 +65,52 @@ export default function LanguageCard({
       </div>
     );
   };
-  
+
+  const renderMessage = (msg: string, romaji?: string) => (
+    <>
+      <p className="text-sm text-muted-foreground" lang={languageInfo.code}>{msg}</p>
+      {romaji && <p className="text-xs text-muted-foreground/80" lang="ja-Latn">{romaji}</p>}
+    </>
+  );
+
   const livePreviewContent = () => {
-    if (isLoading && !livePreviewText) return <span className="text-muted-foreground italic">Loading preview...</span>;
-    if (!livePreviewText && !isDetectedSource) return <span className="text-muted-foreground italic">Awaiting input...</span>;
-    if (!livePreviewText && isDetectedSource) return <span className="text-muted-foreground italic">Type to see translation...</span>;
+    const langCode = languageInfo.code;
 
+    const isJapanesePreview = (
+      val: string | TranslationOutput['ja']
+    ): val is TranslationOutput['ja'] =>
+      typeof val === 'object' && val !== null && 'kanji' in val && 'romaji' in val;
 
-    if (languageInfo.code === 'ja') {
-        // Assuming livePreviewText for Japanese is just Kanji.
-        // If it contains an object {kanji, romaji} like TranslationOutput, adjust accordingly.
-        // For simplicity, let's assume it's just the Kanji string for live preview.
-        // If livePreviewText is an object {kanji, romaji} from a more complex state:
-        // return (
-        //   <>
-        //     <p className="font-semibold" lang="ja">{livePreviewText.kanji || ' '}</p>
-        //     <p className="text-xs text-muted-foreground/80" lang="ja-Latn">{livePreviewText.romaji || ' '}</p>
-        //   </>
-        // );
-       return <p className="font-semibold" lang="ja">{livePreviewText || ' '}</p>;
+    const isEmptyJa = (val: string | TranslationOutput['ja']) =>
+      isJapanesePreview(val) && !val.kanji.trim() && !val.romaji.trim();
+
+    // Loading or awaiting input
+    if (isLoading && (!livePreviewText || isEmptyJa(livePreviewText))) {
+      if (langCode === 'ja') return renderMessage('プレビューを読み込み中...', 'Purebyū o yomikomi-chū...');
+      if (langCode === 'id') return renderMessage('Memuat pratinjau...');
+      return renderMessage('Loading preview...');
     }
-    return <p>{livePreviewText || ' '}</p>;
+
+    if ((!livePreviewText || isEmptyJa(livePreviewText)) && !isDetectedSource) {
+      if (langCode === 'ja') return renderMessage('入力を待っています...', 'Nyūryoku o matte imasu...');
+      if (langCode === 'id') return renderMessage('Menunggu input...');
+      return renderMessage('Awaiting input...');
+    }
+
+    // Render Japanese with kanji + romaji
+    if (langCode === 'ja' && isJapanesePreview(livePreviewText)) {
+      return renderMessage(livePreviewText.kanji || '　', livePreviewText.romaji || '　');
+    }
+
+    // Default for EN/ID text
+    return <p>{(livePreviewText as string) || '　'}</p>;
   };
 
-
   return (
-    <Card className={`w-full shadow-lg border-2 ${isDetectedSource && livePreviewText.trim() ? 'border-primary' : 'border-foreground/20'} hover:border-accent transition-all duration-300 flex flex-col`}>
+    <Card className={`w-full shadow-lg border-2 ${isDetectedSource ? 'border-primary' : 'border-foreground/20'} hover:border-accent transition-all duration-300 flex flex-col`}>
       <CardHeader className="py-3 px-4 flex flex-row justify-between items-center">
-        <CardTitle className={`font-headline text-lg ${isDetectedSource && livePreviewText.trim() ? 'text-primary' : 'text-foreground'}`}>{languageInfo.name}</CardTitle>
-        {isDetectedSource && livePreviewText.trim() && (
+        <CardTitle className={`font-headline text-lg ${isDetectedSource ? 'text-primary' : 'text-foreground'}`}>{languageInfo.name}</CardTitle>
+        {isDetectedSource && (
           <Badge variant="outline" className="border-primary text-primary">
             <Sparkles className="w-3 h-3 mr-1.5" />
             Source
@@ -104,19 +121,23 @@ export default function LanguageCard({
         <ScrollArea className="h-60 w-full px-3 pt-2">
           <div ref={scrollRef}>
             {historyEntries.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">Saved translations will appear here.</p>
+              <>
+                {languageInfo.code == 'en' && renderMessage('Saved translations will appear here.')}
+                {languageInfo.code == 'id' && renderMessage('Terjemahan yang disimpan akan muncul di sini.')}
+                {languageInfo.code == 'ja' && renderMessage('保存された翻訳はここに表示されます。', `Hozon sareta hon'yaku wa koko ni hyōji sa remasu.`)}
+              </>
             )}
             {historyEntries.map(renderHistoryEntry)}
           </div>
         </ScrollArea>
       </CardContent>
-      <CardFooter 
+      <CardFooter
         ref={livePreviewScrollRef}
         className="p-3 border-t border-border/20 bg-background/40 min-h-[70px] max-h-[120px] overflow-y-auto flex items-start" // Ensure footer can scroll if content is long
         style={{ scrollbarWidth: 'thin' }}
       >
         <div className="text-sm w-full break-words whitespace-pre-wrap">
-         {livePreviewContent()}
+          {livePreviewContent()}
         </div>
       </CardFooter>
     </Card>
