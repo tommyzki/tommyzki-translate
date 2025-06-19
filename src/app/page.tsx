@@ -5,8 +5,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Languages, Loader2, CornerDownLeft, Sparkles } from 'lucide-react';
 import LanguageCard from '@/components/LanguageCard';
 import { useToast } from '@/hooks/use-toast';
-import { translateText, type TranslationInput, type TranslationOutput } from '@/ai/flows/real-time-translation';
-import { detectLanguage, type DetectLanguageInput, type DetectLanguageOutput } from '@/ai/flows/detect-language';
+import { detectLanguage } from '@/ai/flows/detect-language';
+import { translateText, type TranslationOutput } from '@/ai/flows/real-time-translation';
 import { LANGUAGES, UI_LANGUAGE_ORDER, type LanguageCode } from '@/lib/languages';
 import { debounce } from '@/lib/debounce';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,6 +18,10 @@ export default function Home() {
   const [universalInput, setUniversalInput] = useState('');
   const [detectedSourceLanguage, setDetectedSourceLanguage] = useState<LanguageCode | null>(null);
   const [livePreviews, setLivePreviews] = useState<TranslationOutput>({
+    source: {
+      code: '',
+      name: '',
+    },
     en: '',
     id: '',
     ja: {
@@ -27,11 +31,14 @@ export default function Home() {
   });
   const [translationHistory, setTranslationHistory] = useState<TranslationOutput[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isDetecting, setIsDetecting] = useState(false);
   const { toast } = useToast();
 
   const clearPreviews = useCallback(() => {
     setLivePreviews({
+      source: {
+        code: '',
+        name: '',
+      },
       en: '',
       id: '',
       ja: {
@@ -42,11 +49,22 @@ export default function Home() {
     setDetectedSourceLanguage(null);
   }, []);
 
-  const performFullTranslation = useCallback(async (text: string, sourceLang: LanguageCode): Promise<TranslationOutput | null> => {
+  const performFullTranslation = useCallback(async (text: string, sourceLang: LanguageCode | null): Promise<TranslationOutput | null> => {
+    if (!sourceLang) {
+      // If source language is not detected or set, we can't reliably translate.
+      // However, the prompt for translateText might be robust enough if we pass a generic instruction.
+      // For now, let's assume the translateText flow can handle an unknown source or default.
+      // Alternatively, we could show an error or default to a specific source language.
+      console.warn("Source language not specified for full translation. Relying on Genkit flow's robustness.");
+    }
     setIsLoading(true);
     try {
-      const result: TranslationOutput = await translateText({ text, sourceLanguage: sourceLang });
-      console.log(result)
+      // The current translateText flow doesn't explicitly take sourceLanguage as a top-level param in its input schema.
+      // It expects the prompt to infer or be told the source language implicitly.
+      // We will modify the prompt in real-time-translation.ts if explicit source is needed.
+      // For now, we rely on the language detection being part of the overall process leading to this.
+      // The `source` field in TranslationOutput is set by the AI.
+      const result: TranslationOutput = await translateText({ text });
       return result;
     } catch (error) {
       console.error("Translation error:", error);
@@ -62,54 +80,47 @@ export default function Home() {
   }, [toast]);
 
 
-  const updateLivePreviews = useCallback(async (text: string, sourceLang: LanguageCode) => {
-    const trimmedText = text.trim();
-
-    if (!trimmedText) {
-      clearPreviews();
-      return;
-    }
-
-    try {
-      const translationResult = await performFullTranslation(trimmedText, sourceLang);
-      setLivePreviews(currentPreviews => ({
-        ...currentPreviews,
-        ...(translationResult ?? { [sourceLang]: trimmedText }),
-      }));
-    } catch (error) {
-      console.error('Translation failed:', error);
-      setLivePreviews(currentPreviews => ({
-        ...currentPreviews,
-        [sourceLang]: trimmedText,
-      }));
-    }
-  }, [clearPreviews, performFullTranslation]);
-
-
-
   const debouncedDetectAndTranslateRef = useRef(
     debounce(async (text: string) => {
-      if (!text.trim()) {
+      const trimmedText = text.trim();
+      if (!trimmedText) {
         clearPreviews();
-        setIsDetecting(false);
         return;
       }
-      setIsDetecting(true);
+
+      setIsLoading(true);
       try {
-        const detectionResult: DetectLanguageOutput = await detectLanguage({ text });
-        setDetectedSourceLanguage(detectionResult.language);
-        await updateLivePreviews(text, detectionResult.language);
+        const detectionResult = await detectLanguage({ text: trimmedText });
+        const detectedLang = detectionResult.language;
+        setDetectedSourceLanguage(detectedLang);
+
+        const translationResult = await translateText({ text: trimmedText });
+
+        if (translationResult) {
+          setLivePreviews(translationResult);
+        } else {
+          // Handle case where translation might fail but detection worked
+          // Or provide some default state for previews
+          const fallbackPreviews: Partial<TranslationOutput> = { source: { code: detectedLang, name: LANGUAGES[detectedLang]?.name || detectedLang.toUpperCase() }};
+          UI_LANGUAGE_ORDER.forEach(lang => {
+            if (lang === detectedLang) {
+              fallbackPreviews[lang] = trimmedText as any; // Type assertion might be needed depending on structure
+            } else {
+               fallbackPreviews[lang] = '' as any;
+            }
+          });
+          setLivePreviews(prev => ({...prev, ...fallbackPreviews}));
+        }
       } catch (error) {
-        console.error("Language Detection error:", error);
+        console.error('Detection or Translation failed:', error);
         toast({
-          title: "Language Detection Failed",
-          description: "Could not detect language. Defaulting to English or try specifying.",
+          title: "Error",
+          description: "Could not detect language or translate.",
           variant: "destructive",
         });
-        setDetectedSourceLanguage('en'); // Fallback
-        await updateLivePreviews(text, 'en');
+        clearPreviews(); // Clear previews on error
       } finally {
-        setIsDetecting(false);
+        setIsLoading(false);
       }
     }, 1000)
   );
@@ -126,88 +137,115 @@ export default function Home() {
   };
 
   const handleCommitTranslation = async () => {
-    if (!universalInput.trim() || !detectedSourceLanguage) {
+    const trimmedInput = universalInput.trim();
+    if (!trimmedInput) {
       toast({ title: "Cannot Translate", description: "Please enter some text to translate.", variant: "default" });
       return;
     }
 
-    const result = await performFullTranslation(universalInput, detectedSourceLanguage);
-    if (result) {
-      setTranslationHistory(prev => [result, ...prev]); // Add to top of history
+    // Use the latest livePreviews if available and consistent, otherwise re-translate
+    // This ensures the committed history entry is accurate
+    let resultToCommit = livePreviews;
+
+    // If the source in livePreviews doesn't match detected or input is very different, re-translate fully.
+    // For simplicity, we can re-fetch based on current universalInput and detectedSourceLanguage.
+    if (!livePreviews.source.code || livePreviews[livePreviews.source.code as Exclude<LanguageCode, 'ja'>] !== trimmedInput && livePreviews.source.code !== 'ja') {
+        const finalTranslation = await performFullTranslation(trimmedInput, detectedSourceLanguage);
+        if (finalTranslation) {
+            resultToCommit = finalTranslation;
+        } else {
+            // If final translation fails, don't add to history.
+            toast({ title: "Save Failed", description: "Could not save the translation.", variant: "destructive" });
+            return;
+        }
+    }
+
+
+    if (resultToCommit && resultToCommit.source.code) { // Ensure we have a valid translation
+      setTranslationHistory(prev => [resultToCommit, ...prev]);
       setUniversalInput('');
       clearPreviews();
+    } else {
+       toast({ title: "Save Failed", description: "Translation data is incomplete.", variant: "destructive" });
     }
   };
 
   return (
-    <main className="flex flex-col items-center p-4 md:p-8 w-full min-h-screen">
-      <header className="mb-6 text-center w-full max-w-6xl">
-        <div className="flex items-center justify-center gap-3">
-          <Languages className="h-10 w-10 text-primary" />
-          <h1 className="text-4xl md:text-5xl font-headline font-bold text-primary">
+    <main className="flex flex-col w-full min-h-screen bg-background">
+      <header className="w-full py-3 px-4 md:px-8 border-b border-border/50 bg-card shadow-sm sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto flex items-center gap-2">
+          <Languages className="h-6 w-6 text-primary" />
+          <h1 className="text-lg font-semibold text-primary">
             Tommyzki Translator
           </h1>
         </div>
-        <p className="text-muted-foreground mt-2 text-sm md:text-base">
-          Type in any supported language, and see live translations. Press "Next Line" to save.
-        </p>
       </header>
 
-      {(isLoading || isDetecting) && (
-        <div className="fixed top-4 right-4 z-50 bg-card p-3 rounded-md shadow-lg border-2 border-primary flex items-center gap-2">
-          <Loader2 className="h-5 w-5 animate-spin text-primary" />
-          <span className="text-primary font-medium">{isDetecting ? 'Detecting Language...' : 'Translating...'}</span>
-        </div>
-      )}
+      {/* Container for the rest of the page content, applying padding and centering */}
+      <div className="flex flex-col items-center flex-grow w-full p-4 md:p-8">
+        {isLoading && (
+          <div className="fixed top-16 right-4 z-50 bg-card p-3 rounded-md shadow-lg border-2 border-primary flex items-center gap-2">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <span className="text-primary font-medium">Translating...</span>
+          </div>
+        )}
 
-      {/* Content wrapper for cards and footer, this will grow */}
-      <div className="flex flex-col items-center flex-grow w-full max-w-6xl">
-        <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
-          {UI_LANGUAGE_ORDER.map((langCode) => (
-            <LanguageCard
-              key={langCode}
-              languageInfo={LANGUAGES[langCode]}
-              livePreviewText={livePreviews[langCode]}
-              historyEntries={translationHistory}
-              isLoading={isLoading || isDetecting}
-              isDetectedSource={detectedSourceLanguage === langCode && universalInput.trim() !== ''}
+        {/* Content wrapper for cards */}
+        <div className="w-full max-w-6xl">
+          <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+            {UI_LANGUAGE_ORDER.map((langCode) => (
+              <LanguageCard
+                key={langCode}
+                languageInfo={LANGUAGES[langCode]}
+                livePreviewText={
+                  langCode === 'ja'
+                    ? livePreviews.ja
+                    : livePreviews[langCode as Exclude<LanguageCode, 'ja'>]
+                }
+                historyEntries={translationHistory}
+                isLoading={isLoading && detectedSourceLanguage !== langCode} // Card specific loading might be complex
+                isDetectedSource={detectedSourceLanguage === langCode && universalInput.trim().length > 0}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Input Area - Moved to the bottom of this centered, padded container */}
+        <div className="w-full max-w-2xl mt-auto pt-6 mb-2">
+          <div className="relative">
+            <Textarea
+              value={universalInput}
+              onChange={handleUniversalInputChange}
+              placeholder="Type here to translate (English, Bahasa Indonesia, or Japanese)..."
+              className="w-full resize-none text-base border-2 border-input focus:border-accent ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 p-4 pr-28"
+              rows={4}
+              aria-label="Universal translation input"
+              disabled={isLoading} // Disable input while any global loading is active
             />
-          ))}
+            {livePreviews.source.name && universalInput.trim() && !isLoading && (
+              <Badge variant="secondary" className="absolute top-3 right-3 bg-accent/80 text-accent-foreground">
+                <Sparkles className="w-3 h-3 mr-1.5" />
+                Detected: {livePreviews.source.name}
+              </Badge>
+            )}
+          </div>
+          <Button
+            onClick={handleCommitTranslation}
+            disabled={!universalInput.trim() || isLoading}
+            className="w-full mt-3"
+            variant="default"
+            size="lg"
+          >
+            <CornerDownLeft className="mr-2 h-5 w-5" />
+            Next Line & Save
+          </Button>
         </div>
       </div>
 
-      {/* Input Area - Moved to the bottom of the page flow */}
-      <div className="w-full max-w-2xl mt-6 mb-2">
-        <div className="relative">
-          <Textarea
-            value={universalInput}
-            onChange={handleUniversalInputChange}
-            placeholder="Type here to translate (English, Bahasa Indonesia, or Japanese)..."
-            className="w-full resize-none text-base border-2 border-input focus:border-accent ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 p-4 pr-28"
-            rows={4}
-            aria-label="Universal translation input"
-            disabled={isLoading || isDetecting}
-          />
-          {detectedSourceLanguage && universalInput.trim() && (
-            <Badge variant="secondary" className="absolute top-3 right-3 bg-accent/80 text-accent-foreground">
-              <Sparkles className="w-3 h-3 mr-1.5" />
-              {LANGUAGES[detectedSourceLanguage].name}
-            </Badge>
-          )}
+      <footer className="py-4 text-center text-sm text-muted-foreground w-full border-t border-border/50">
+        <div className="max-w-6xl mx-auto px-4 md:px-8">
+          <p>&copy; {new Date().getFullYear()} Tommyzki Translator. Inspired by classic Pokémon games.</p>
         </div>
-        <Button
-          onClick={handleCommitTranslation}
-          disabled={!universalInput.trim() || isLoading || isDetecting || !detectedSourceLanguage}
-          className="w-full mt-3"
-          variant="default"
-          size="lg"
-        >
-          <CornerDownLeft className="mr-2 h-5 w-5" />
-          Next Line & Save
-        </Button>
-      </div>
-      <footer className="mt-auto py-4 text-center text-sm text-muted-foreground w-full">
-        <p>&copy; {new Date().getFullYear()} Tommyzki Translator. Inspired by classic Pokémon games.</p>
       </footer>
     </main>
   );
