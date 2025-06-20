@@ -1,11 +1,9 @@
-
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Languages, Loader2, CornerDownLeft, Sparkles } from 'lucide-react';
 import LanguageCard from '@/components/LanguageCard';
 import { useToast } from '@/hooks/use-toast';
-import { detectLanguage } from '@/ai/flows/detect-language';
 import { translateText, type TranslationOutput } from '@/ai/flows/real-time-translation';
 import { LANGUAGES, UI_LANGUAGE_ORDER, type LanguageCode } from '@/lib/languages';
 import { debounce } from '@/lib/debounce';
@@ -16,7 +14,6 @@ import { Badge } from '@/components/ui/badge';
 
 export default function Home() {
   const [universalInput, setUniversalInput] = useState('');
-  const [detectedSourceLanguage, setDetectedSourceLanguage] = useState<LanguageCode | null>(null);
   const [livePreviews, setLivePreviews] = useState<TranslationOutput>({
     source: {
       code: '',
@@ -46,25 +43,13 @@ export default function Home() {
         romaji: '',
       },
     });
-    setDetectedSourceLanguage(null);
   }, []);
 
-  const performFullTranslation = useCallback(async (text: string, sourceLang: LanguageCode | null): Promise<TranslationOutput | null> => {
-    if (!sourceLang) {
-      // If source language is not detected or set, we can't reliably translate.
-      // However, the prompt for translateText might be robust enough if we pass a generic instruction.
-      // For now, let's assume the translateText flow can handle an unknown source or default.
-      // Alternatively, we could show an error or default to a specific source language.
-      console.warn("Source language not specified for full translation. Relying on Genkit flow's robustness.");
-    }
+  const performFullTranslation = useCallback(async (text: string): Promise<TranslationOutput | null> => {
     setIsLoading(true);
     try {
-      // The current translateText flow doesn't explicitly take sourceLanguage as a top-level param in its input schema.
-      // It expects the prompt to infer or be told the source language implicitly.
-      // We will modify the prompt in real-time-translation.ts if explicit source is needed.
-      // For now, we rely on the language detection being part of the overall process leading to this.
-      // The `source` field in TranslationOutput is set by the AI.
       const result: TranslationOutput = await translateText({ text });
+      console.log(result)
       return result;
     } catch (error) {
       console.error("Translation error:", error);
@@ -80,47 +65,44 @@ export default function Home() {
   }, [toast]);
 
 
+  const updateLivePreviews = useCallback(async (text: string) => {
+    const trimmedText = text.trim();
+
+    if (!trimmedText) {
+      clearPreviews();
+      return;
+    }
+
+    try {
+      const translationResult = await performFullTranslation(trimmedText);
+      setLivePreviews(currentPreviews => ({
+        ...currentPreviews,
+        ...(translationResult ?? { 'en': trimmedText }),
+      }));
+    } catch (error) {
+      console.error('Translation failed:', error);
+      setLivePreviews(currentPreviews => ({
+        ...currentPreviews
+      }));
+    }
+  }, [clearPreviews, performFullTranslation]);
+
   const debouncedDetectAndTranslateRef = useRef(
     debounce(async (text: string) => {
-      const trimmedText = text.trim();
-      if (!trimmedText) {
+      if (!text.trim()) {
         clearPreviews();
         return;
       }
-
-      setIsLoading(true);
       try {
-        const detectionResult = await detectLanguage({ text: trimmedText });
-        const detectedLang = detectionResult.language;
-        setDetectedSourceLanguage(detectedLang);
-
-        const translationResult = await translateText({ text: trimmedText });
-
-        if (translationResult) {
-          setLivePreviews(translationResult);
-        } else {
-          // Handle case where translation might fail but detection worked
-          // Or provide some default state for previews
-          const fallbackPreviews: Partial<TranslationOutput> = { source: { code: detectedLang, name: LANGUAGES[detectedLang]?.name || detectedLang.toUpperCase() }};
-          UI_LANGUAGE_ORDER.forEach(lang => {
-            if (lang === detectedLang) {
-              fallbackPreviews[lang] = trimmedText as any; // Type assertion might be needed depending on structure
-            } else {
-               fallbackPreviews[lang] = '' as any;
-            }
-          });
-          setLivePreviews(prev => ({...prev, ...fallbackPreviews}));
-        }
+        await updateLivePreviews(text);
       } catch (error) {
-        console.error('Detection or Translation failed:', error);
+        console.error("Language Detection error:", error);
         toast({
-          title: "Error",
-          description: "Could not detect language or translate.",
+          title: "Language Detection Failed",
+          description: "Could not detect language. Defaulting to English or try specifying.",
           variant: "destructive",
         });
-        clearPreviews(); // Clear previews on error
-      } finally {
-        setIsLoading(false);
+        await updateLivePreviews(text);
       }
     }, 1000)
   );
@@ -137,36 +119,15 @@ export default function Home() {
   };
 
   const handleCommitTranslation = async () => {
-    const trimmedInput = universalInput.trim();
-    if (!trimmedInput) {
+    if (!universalInput.trim()) {
       toast({ title: "Cannot Translate", description: "Please enter some text to translate.", variant: "default" });
       return;
     }
 
-    // Use the latest livePreviews if available and consistent, otherwise re-translate
-    // This ensures the committed history entry is accurate
-    let resultToCommit = livePreviews;
-
-    // If the source in livePreviews doesn't match detected or input is very different, re-translate fully.
-    // For simplicity, we can re-fetch based on current universalInput and detectedSourceLanguage.
-    if (!livePreviews.source.code || livePreviews[livePreviews.source.code as Exclude<LanguageCode, 'ja'>] !== trimmedInput && livePreviews.source.code !== 'ja') {
-        const finalTranslation = await performFullTranslation(trimmedInput, detectedSourceLanguage);
-        if (finalTranslation) {
-            resultToCommit = finalTranslation;
-        } else {
-            // If final translation fails, don't add to history.
-            toast({ title: "Save Failed", description: "Could not save the translation.", variant: "destructive" });
-            return;
-        }
-    }
-
-
-    if (resultToCommit && resultToCommit.source.code) { // Ensure we have a valid translation
-      setTranslationHistory(prev => [resultToCommit, ...prev]);
+    if (livePreviews) {
+      setTranslationHistory(prev => [livePreviews, ...prev]); // Add to top of history
       setUniversalInput('');
       clearPreviews();
-    } else {
-       toast({ title: "Save Failed", description: "Translation data is incomplete.", variant: "destructive" });
     }
   };
 
@@ -203,8 +164,8 @@ export default function Home() {
                     : livePreviews[langCode as Exclude<LanguageCode, 'ja'>]
                 }
                 historyEntries={translationHistory}
-                isLoading={isLoading && detectedSourceLanguage !== langCode} // Card specific loading might be complex
-                isDetectedSource={detectedSourceLanguage === langCode && universalInput.trim().length > 0}
+                isLoading={isLoading} // Card specific loading might be complex
+                isDetectedSource={false}
               />
             ))}
           </div>
@@ -220,12 +181,11 @@ export default function Home() {
               className="w-full resize-none text-base border-2 border-input focus:border-accent ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 p-4 pr-28"
               rows={4}
               aria-label="Universal translation input"
-              disabled={isLoading} // Disable input while any global loading is active
             />
             {livePreviews.source.name && universalInput.trim() && !isLoading && (
               <Badge variant="secondary" className="absolute top-3 right-3 bg-accent/80 text-accent-foreground">
                 <Sparkles className="w-3 h-3 mr-1.5" />
-                Detected: {livePreviews.source.name}
+                 {livePreviews.source.name}
               </Badge>
             )}
           </div>
