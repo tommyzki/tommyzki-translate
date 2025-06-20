@@ -9,18 +9,19 @@
  * - TranslationOutput - Output type for the translation function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 
 const TranslationInputSchema = z.object({
   text: z.string().describe('The text to translate.'),
-  sourceLanguage: z
-    .enum(['en', 'id', 'ja'])
-    .describe('The source language of the text (en, id, or ja).'),
 });
 export type TranslationInput = z.infer<typeof TranslationInputSchema>;
 
 const TranslationOutputSchema = z.object({
+  source: z.object({
+    code: z.string().describe('The text to translate Source Language code'),
+    name: z.string().describe('The text to translate Source Language full name'),
+  }).describe('The text to translate Source Language.'),
   en: z.string().describe('The translated text in English.'),
   id: z.string().describe('The translated text in Bahasa Indonesia.'),
   ja: z.object({
@@ -36,13 +37,14 @@ export async function translateText(input: TranslationInput): Promise<Translatio
 
 const translatePrompt = ai.definePrompt({
   name: 'translatePrompt',
-  input: {schema: TranslationInputSchema},
-  output: {schema: TranslationOutputSchema},
+  input: { schema: TranslationInputSchema },
+  output: { schema: TranslationOutputSchema },
   prompt: `You are a translation expert. Translate the given text from {{sourceLanguage}} to English, Bahasa Indonesia, and Japanese.
 
 Text to translate: {{{text}}}
 
-Output the translations in JSON format, with separate fields for kanji and romaji in Japanese.`,
+Output the translations in JSON format, with separate fields for kanji and romaji in Japanese. 
+also give me the source or languange has translated with code source with separate field name code and full name of language`,
 });
 
 const translateTextFlow = ai.defineFlow(
@@ -52,7 +54,7 @@ const translateTextFlow = ai.defineFlow(
     outputSchema: TranslationOutputSchema,
   },
   async input => {
-    const {output} = await translatePrompt(input);
+    const { output } = await translatePrompt(input);
     return output!;
   }
 );

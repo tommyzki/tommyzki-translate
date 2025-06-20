@@ -19,9 +19,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid input", details: validationResult.error.flatten().fieldErrors }, { status: 400 });
     }
 
-    const { text, sourceLanguage } = validationResult.data;
+    const { text } = validationResult.data;
 
-    const translationInput: TranslationInput = { text, sourceLanguage };
+    const translationInput: TranslationInput = { text };
     const result: TranslationOutput = await translateText(translationInput);
 
     return NextResponse.json(result, { status: 200 });
